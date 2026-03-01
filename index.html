@@ -1,0 +1,185 @@
+from flask import Flask, request, jsonify, render_template_string
+import re
+import math
+
+app = Flask(__name__)
+
+# --- ЛОГИКА АНАЛИЗА (МАКСИМАЛЬНАЯ СКОРОСТЬ) ---
+def analyze_text_logic(text):
+    sentences = re.split(r'[.!?]+', text)
+    sentences = [s.strip() for s in sentences if len(s.strip()) > 5]
+    words = re.findall(r'\w+', text.lower())
+    
+    if len(words) < 10:
+        return 0, 100 # Слишком мало текста для вывода
+
+    # 1. Анализ вариативности предложений (Люди пишут контрастно)
+    sentence_lengths = [len(s.split()) for s in sentences]
+    if len(sentence_lengths) > 1:
+        avg_len = sum(sentence_lengths) / len(sentence_lengths)
+        variance = sum((x - avg_len) ** 2 for x in sentence_lengths) / len(sentence_lengths)
+    else:
+        variance = 0
+
+    # 2. Анализ уникальности слов
+    unique_ratio = len(set(words)) / len(words)
+
+    # Веса для определения ИИ
+    # ИИ: низкая вариативность (ритм) и средняя уникальность слов
+    ai_score = 40
+    
+    if variance < 12: ai_score += 30 # Монотонный ритм характерный для ИИ
+    if unique_ratio < 0.45: ai_score += 20 # Слишком простой/повторяющийся лексикон
+    
+    # Корректировка границ
+    ai_final = min(max(int(ai_score), 5), 96)
+    return ai_final, 100 - ai_final
+
+# --- ДИЗАЙН (HIGH-END MINIMALISM) ---
+HTML_TEMPLATE = '''
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>AI Detector Elite</title>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;500;800&display=swap" rel="stylesheet">
+    <style>
+        body {
+            background-color: #000;
+            color: #fff;
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            margin: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+        }
+        .container {
+            width: 100%;
+            max-width: 800px;
+            padding: 40px;
+            text-align: center;
+        }
+        h1 {
+            font-size: 3.5rem;
+            font-weight: 800;
+            letter-spacing: -3px;
+            margin-bottom: 40px;
+            background: linear-gradient(180deg, #fff 0%, #444 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .input-wrapper {
+            background: #0a0a0a;
+            border: 1px solid #1a1a1a;
+            border-radius: 30px;
+            padding: 20px;
+            transition: all 0.4s ease;
+        }
+        .input-wrapper:focus-within {
+            border-color: #333;
+            box-shadow: 0 0 60px rgba(255,255,255,0.02);
+        }
+        textarea {
+            width: 100%;
+            height: 300px;
+            background: transparent;
+            border: none;
+            color: #fff;
+            font-size: 1.1rem;
+            line-height: 1.6;
+            outline: none;
+            resize: none;
+            font-family: inherit;
+        }
+        .btn-main {
+            margin-top: 30px;
+            background: #fff;
+            color: #000;
+            border: none;
+            padding: 18px 60px;
+            border-radius: 100px;
+            font-weight: 600;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: 0.3s;
+        }
+        .btn-main:hover {
+            transform: translateY(-2px);
+            background: #ddd;
+        }
+        .results {
+            display: flex;
+            justify-content: center;
+            gap: 80px;
+            margin-top: 50px;
+            opacity: 0;
+            transform: translateY(20px);
+            transition: 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        .results.show {
+            opacity: 1;
+            transform: translateY(0);
+        }
+        .res-box { text-align: center; }
+        .num { font-size: 4rem; font-weight: 800; display: block; }
+        .label { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 3px; color: #555; }
+        .ai-val { color: #ff3b30; text-shadow: 0 0 30px rgba(255, 59, 48, 0.2); }
+        .human-val { color: #34c759; text-shadow: 0 0 30px rgba(52, 199, 89, 0.2); }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>AI DETECTOR</h1>
+    <div class="input-wrapper">
+        <textarea id="textInput" placeholder="Вставьте текст и узнайте правду..."></textarea>
+    </div>
+    <button class="btn-main" onclick="checkText()">АНАЛИЗ</button>
+
+    <div id="results" class="results">
+        <div class="res-box">
+            <span id="aiNum" class="num ai-val">0%</span>
+            <span class="label">AI Content</span>
+        </div>
+        <div class="res-box">
+            <span id="humanNum" class="num human-val">0%</span>
+            <span class="label">Human Text</span>
+        </div>
+    </div>
+</div>
+
+<script>
+    async function checkText() {
+        const text = document.getElementById('textInput').value;
+        if (text.length < 5) return;
+
+        const res = await fetch('/analyze', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({text})
+        });
+        const data = await res.json();
+
+        document.getElementById('aiNum').innerText = data.ai + '%';
+        document.getElementById('humanNum').innerText = data.human + '%';
+        document.getElementById('results').classList.add('show');
+    }
+</script>
+
+</body>
+</html>
+'''
+
+@app.route('/')
+def index():
+    return render_template_string(HTML_TEMPLATE)
+
+@app.route('/analyze', methods=['POST'])
+def analyze():
+    text = request.json.get('text', '')
+    ai, human = analyze_text_logic(text)
+    return jsonify({'ai': ai, 'human': human})
+
+if __name__ == '__main__':
+    app.run(debug=True)
