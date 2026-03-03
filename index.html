@@ -1,184 +1,156 @@
 from flask import Flask, request, jsonify, render_template_string
 import re
-import math
 
 app = Flask(__name__)
 
-# --- ЛОГИКА АНАЛИЗА (МАКСИМАЛЬНАЯ СКОРОСТЬ) ---
-def analyze_text_logic(text):
-    sentences = re.split(r'[.!?]+', text)
-    sentences = [s.strip() for s in sentences if len(s.strip()) > 5]
-    words = re.findall(r'\w+', text.lower())
-    
-    if len(words) < 10:
-        return 0, 100 # Слишком мало текста для вывода
-
-    # 1. Анализ вариативности предложений (Люди пишут контрастно)
-    sentence_lengths = [len(s.split()) for s in sentences]
-    if len(sentence_lengths) > 1:
-        avg_len = sum(sentence_lengths) / len(sentence_lengths)
-        variance = sum((x - avg_len) ** 2 for x in sentence_lengths) / len(sentence_lengths)
-    else:
-        variance = 0
-
-    # 2. Анализ уникальности слов
-    unique_ratio = len(set(words)) / len(words)
-
-    # Веса для определения ИИ
-    # ИИ: низкая вариативность (ритм) и средняя уникальность слов
-    ai_score = 40
-    
-    if variance < 12: ai_score += 30 # Монотонный ритм характерный для ИИ
-    if unique_ratio < 0.45: ai_score += 20 # Слишком простой/повторяющийся лексикон
-    
-    # Корректировка границ
-    ai_final = min(max(int(ai_score), 5), 96)
-    return ai_final, 100 - ai_final
-
-# --- ДИЗАЙН (HIGH-END MINIMALISM) ---
+# --- HTML И ДИЗАЙН (Все в одном) ---
 HTML_TEMPLATE = '''
 <!DOCTYPE html>
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <title>AI Detector Elite</title>
-    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;500;800&display=swap" rel="stylesheet">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI vs Human Detector</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
     <style>
+        :root {
+            --bg: #0f172a;
+            --card: #1e293b;
+            --primary: #6366f1;
+            --ai-color: #f43f5e;
+            --human-color: #10b981;
+            --text: #f8fafc;
+        }
         body {
-            background-color: #000;
-            color: #fff;
-            font-family: 'Plus Jakarta Sans', sans-serif;
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg);
+            color: var(--text);
             margin: 0;
             display: flex;
             justify-content: center;
             align-items: center;
-            height: 100vh;
+            min-height: 100vh;
         }
         .container {
+            background: var(--card);
             width: 100%;
-            max-width: 800px;
-            padding: 40px;
-            text-align: center;
+            max-width: 500px;
+            padding: 2.5rem;
+            border-radius: 24px;
+            box-shadow: 0 20px 50px rgba(0,0,0,0.3);
+            border: 1px solid rgba(255,255,255,0.1);
         }
-        h1 {
-            font-size: 3.5rem;
-            font-weight: 800;
-            letter-spacing: -3px;
-            margin-bottom: 40px;
-            background: linear-gradient(180deg, #fff 0%, #444 100%);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-        }
-        .input-wrapper {
-            background: #0a0a0a;
-            border: 1px solid #1a1a1a;
-            border-radius: 30px;
-            padding: 20px;
-            transition: all 0.4s ease;
-        }
-        .input-wrapper:focus-within {
-            border-color: #333;
-            box-shadow: 0 0 60px rgba(255,255,255,0.02);
-        }
+        h1 { text-align: center; font-weight: 600; margin-bottom: 1.5rem; letter-spacing: -1px; }
         textarea {
             width: 100%;
-            height: 300px;
-            background: transparent;
-            border: none;
-            color: #fff;
-            font-size: 1.1rem;
-            line-height: 1.6;
+            height: 160px;
+            background: #0f172a;
+            border: 1px solid #334155;
+            border-radius: 12px;
+            color: white;
+            padding: 15px;
+            font-size: 15px;
+            line-height: 1.5;
+            box-sizing: border-box;
             outline: none;
-            resize: none;
-            font-family: inherit;
+            transition: border 0.3s;
         }
-        .btn-main {
-            margin-top: 30px;
-            background: #fff;
-            color: #000;
+        textarea:focus { border-color: var(--primary); }
+        button {
+            width: 100%;
+            padding: 14px;
+            margin-top: 20px;
             border: none;
-            padding: 18px 60px;
-            border-radius: 100px;
+            border-radius: 12px;
+            background: var(--primary);
+            color: white;
+            font-size: 16px;
             font-weight: 600;
-            font-size: 1rem;
             cursor: pointer;
-            transition: 0.3s;
+            transition: all 0.2s;
         }
-        .btn-main:hover {
-            transform: translateY(-2px);
-            background: #ddd;
-        }
-        .results {
-            display: flex;
-            justify-content: center;
-            gap: 80px;
-            margin-top: 50px;
-            opacity: 0;
-            transform: translateY(20px);
-            transition: 0.8s cubic-bezier(0.16, 1, 0.3, 1);
-        }
-        .results.show {
-            opacity: 1;
-            transform: translateY(0);
-        }
-        .res-box { text-align: center; }
-        .num { font-size: 4rem; font-weight: 800; display: block; }
-        .label { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 3px; color: #555; }
-        .ai-val { color: #ff3b30; text-shadow: 0 0 30px rgba(255, 59, 48, 0.2); }
-        .human-val { color: #34c759; text-shadow: 0 0 30px rgba(52, 199, 89, 0.2); }
+        button:hover { transform: translateY(-2px); filter: brightness(1.1); }
+        .results { margin-top: 30px; display: none; animation: fadeIn 0.5s ease; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .stat-row { margin-bottom: 20px; }
+        .label-group { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 14px; font-weight: 600; }
+        .progress-bg { background: #334155; height: 10px; border-radius: 5px; overflow: hidden; }
+        .progress-fill { height: 100%; width: 0%; transition: width 1s cubic-bezier(0.4, 0, 0.2, 1); }
+        #aiBar { background: var(--ai-color); box-shadow: 0 0 15px rgba(244, 63, 94, 0.4); }
+        #humanBar { background: var(--human-color); box-shadow: 0 0 15px rgba(16, 185, 129, 0.4); }
     </style>
 </head>
 <body>
+    <div class="container">
+        <h1>AI Detector</h1>
+        <textarea id="textInput" placeholder="Вставьте ваш текст здесь..."></textarea>
+        <button onclick="analyzeText()" id="btn">Проверить текст</button>
 
-<div class="container">
-    <h1>AI DETECTOR</h1>
-    <div class="input-wrapper">
-        <textarea id="textInput" placeholder="Вставьте текст и узнайте правду..."></textarea>
-    </div>
-    <button class="btn-main" onclick="checkText()">АНАЛИЗ</button>
-
-    <div id="results" class="results">
-        <div class="res-box">
-            <span id="aiNum" class="num ai-val">0%</span>
-            <span class="label">AI Content</span>
-        </div>
-        <div class="res-box">
-            <span id="humanNum" class="num human-val">0%</span>
-            <span class="label">Human Text</span>
+        <div id="results" class="results">
+            <div class="stat-row">
+                <div class="label-group"><span>Написано ИИ:</span><span id="aiLabel">0%</span></div>
+                <div class="progress-bg"><div id="aiBar" class="progress-fill"></div></div>
+            </div>
+            <div class="stat-row">
+                <div class="label-group"><span>Человек:</span><span id="humanLabel">0%</span></div>
+                <div class="progress-bg"><div id="humanBar" class="progress-fill"></div></div>
+            </div>
         </div>
     </div>
-</div>
 
-<script>
-    async function checkText() {
-        const text = document.getElementById('textInput').value;
-        if (text.length < 5) return;
+    <script>
+        async function analyzeText() {
+            const text = document.getElementById('textInput').value;
+            const btn = document.getElementById('btn');
+            if (text.trim().length < 5) return alert("Введите более длинный текст");
 
-        const res = await fetch('/analyze', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({text})
-        });
-        const data = await res.json();
+            btn.innerText = "Анализируем...";
+            btn.disabled = true;
 
-        document.getElementById('aiNum').innerText = data.ai + '%';
-        document.getElementById('humanNum').innerText = data.human + '%';
-        document.getElementById('results').classList.add('show');
-    }
-</script>
+            const res = await fetch('/analyze', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({text})
+            });
+            const data = await res.json();
 
+            document.getElementById('results').style.display = 'block';
+            setTimeout(() => {
+                document.getElementById('aiBar').style.width = data.ai + '%';
+                document.getElementById('humanBar').style.width = data.human + '%';
+                document.getElementById('aiLabel').innerText = data.ai + '%';
+                document.getElementById('humanLabel').innerText = data.human + '%';
+            }, 100);
+
+            btn.innerText = "Проверить текст";
+            btn.disabled = false;
+        }
+    </script>
 </body>
 </html>
 '''
 
+# --- ЛОГИКА АНАЛИЗА ---
+def get_score(text):
+    words = text.split()
+    # Имитация работы ИИ детектора (базируется на длине слов и сложности)
+    # В реальности тут подключается модель Hugging Face
+    avg_len = sum(len(w) for w in words) / len(words) if words else 0
+    
+    # Нейросети часто пишут очень "средними" по длине словами
+    ai_prob = 50 + (avg_len * 2) if avg_len < 7 else 30
+    ai_prob = min(max(int(ai_prob), 5), 95) # Ограничиваем от 5 до 95%
+    
+    return ai_prob, 100 - ai_prob
+
 @app.route('/')
-def index():
+def home():
     return render_template_string(HTML_TEMPLATE)
 
 @app.route('/analyze', methods=['POST'])
 def analyze():
-    text = request.json.get('text', '')
-    ai, human = analyze_text_logic(text)
+    content = request.json.get('text', '')
+    ai, human = get_score(content)
     return jsonify({'ai': ai, 'human': human})
 
 if __name__ == '__main__':
